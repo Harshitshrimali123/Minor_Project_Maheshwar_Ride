@@ -1,0 +1,683 @@
+import React, { useState, useEffect } from 'react';
+import { 
+  MapPin, Navigation, Car, Menu, X, Star, Phone, Shield, 
+  User, Clock, CreditCard, Upload, FileText, CheckCircle, 
+  Wallet, LogOut, Power, Camera, QrCode, Lock, Users, FileCheck, IndianRupee, Loader, Wifi, WifiOff
+} from 'lucide-react';
+
+// POINTING TO THE BACKEND SERVER PORT
+const API_URL = 'http://localhost:5000/api';
+
+const RIDE_OPTIONS = [
+  { id: 'bike', name: 'Maheshwar Bike', icon: '🏍️', price: 45, time: '5 min', desc: 'Fastest way to beat traffic' },
+  { id: 'auto', name: 'Narmada Auto', icon: '🛺', price: 85, time: '3 min', desc: 'Affordable daily rides' },
+  { id: 'mini', name: 'Mini Cab', icon: '🚗', price: 150, time: '8 min', desc: 'Comfy hatchbacks' },
+  { id: 'sedan', name: 'Holkar Prime', icon: '🚙', price: 190, time: '10 min', desc: 'Spacious sedans, top drivers' },
+];
+
+export default function App() {
+  // Views
+  const [view, setView] = useState('landing'); 
+  const [userRole, setUserRole] = useState(null); 
+  const [adminTab, setAdminTab] = useState('overview');
+  
+  // App State
+  const [serverOnline, setServerOnline] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  
+  // User Data
+  const [formData, setFormData] = useState({
+    name: '', mobile: '', gender: 'male', 
+    username: '', password: '', license: '', uniqueId: ''
+  });
+  const [currentUser, setCurrentUser] = useState(null);
+
+  // Admin Data (Fetched from Backend)
+  const [adminData, setAdminData] = useState({
+    users: [],
+    drivers: [],
+    payments: []
+  });
+
+  // Driver State
+  const [driverStatus, setDriverStatus] = useState('offline'); 
+  const [driverActiveRide, setDriverActiveRide] = useState(null);
+
+  // Ride State
+  const [pickup, setPickup] = useState('');
+  const [dropoff, setDropoff] = useState('');
+  const [selectedRide, setSelectedRide] = useState(null);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [searchTimer, setSearchTimer] = useState(0);
+  const [paymentMethod, setPaymentMethod] = useState('online');
+
+  // --- 1. HEALTH CHECK ON LOAD ---
+  useEffect(() => {
+    checkServerStatus();
+    const interval = setInterval(checkServerStatus, 10000); // Check every 10s
+    return () => clearInterval(interval);
+  }, []);
+
+  const checkServerStatus = async () => {
+    try {
+      const res = await fetch(`${API_URL}/health`);
+      if (res.ok) setServerOnline(true);
+      else setServerOnline(false);
+    } catch (e) {
+      setServerOnline(false);
+    }
+  };
+
+  // --- 2. FETCH DATA EFFECTS ---
+  useEffect(() => {
+    if (view === 'admin-dashboard') fetchAdminData();
+  }, [view]);
+
+  // Simulate finding a driver
+  useEffect(() => {
+    let interval;
+    if (view === 'searching') {
+      interval = setInterval(() => {
+        setSearchTimer(prev => {
+          if (prev >= 100) {
+            setView('riding');
+            return 100;
+          }
+          return prev + 2; 
+        });
+      }, 50);
+    }
+    return () => clearInterval(interval);
+  }, [view]);
+
+  // --- API FUNCTIONS ---
+
+  const fetchAdminData = async () => {
+    setLoading(true);
+    try {
+      const [usersRes, driversRes, paymentsRes] = await Promise.all([
+        fetch(`${API_URL}/admin/users`),
+        fetch(`${API_URL}/admin/drivers`),
+        fetch(`${API_URL}/admin/payments`)
+      ]);
+      
+      const users = await usersRes.json();
+      const drivers = await driversRes.json();
+      const payments = await paymentsRes.json();
+
+      setAdminData({
+        users: users.data || [],
+        drivers: drivers.data || [],
+        payments: payments.data || []
+      });
+    } catch (err) {
+      setError("Failed to fetch admin data. Is server running?");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleAuth = async (endpoint, payload) => {
+    if (!serverOnline) {
+      setError("Cannot connect to server. Please check your backend.");
+      return null;
+    }
+
+    setLoading(true);
+    setError('');
+    try {
+      const res = await fetch(`${API_URL}/${endpoint}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      
+      if (data.success) {
+        setCurrentUser(data.user);
+        return data.user;
+      } else {
+        setError(data.message || 'Authentication failed');
+        return null;
+      }
+    } catch (err) {
+      setError('Server connection failed');
+      return null;
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // --- HANDLERS ---
+
+  const handleInputChange = (e) => {
+    setFormData({ ...formData, [e.target.name]: e.target.value });
+  };
+
+  const handleAdminLogin = async () => {
+    if (formData.username === 'admin' && formData.password === 'admin123') {
+       setCurrentUser({ name: 'Administrator', role: 'admin' });
+       setView('admin-dashboard');
+    } else {
+       setError('Invalid Admin Credentials');
+    }
+  };
+
+  const handleDriverRegister = async () => {
+    const user = await handleAuth('driver/register', formData);
+    if (user) {
+      alert(`Registration Successful!\nUsername: ${user.username}\nPassword: ${user.password}\nUnique ID: ${user.uniqueId}`);
+      setView('auth-driver-login');
+    }
+  };
+
+  const handleDriverLogin = async () => {
+    const user = await handleAuth('driver/login', { 
+      username: formData.username, 
+      password: formData.password 
+    });
+    if (user) setView('driver-dashboard');
+  };
+
+  const handleUserLogin = async () => {
+    const user = await handleAuth('passenger/login', {
+      name: formData.name || 'Guest',
+      mobile: formData.mobile,
+      gender: formData.gender
+    });
+    if (user) setView('home');
+  };
+
+  const handleLogout = () => {
+    setCurrentUser(null);
+    setFormData({ name: '', mobile: '', gender: 'male', username: '', password: '', license: '', uniqueId: '' });
+    setView('landing');
+    setMenuOpen(false);
+    setError('');
+  };
+
+  const handleSearch = (e) => {
+    e.preventDefault();
+    if (pickup && dropoff) setView('choosing');
+  };
+
+  const confirmRide = (ride) => {
+    setSelectedRide(ride);
+    setView('searching');
+    setSearchTimer(0);
+  };
+
+  const finishPayment = async () => {
+    setLoading(true);
+    try {
+      // Send payment to backend
+      if (serverOnline) {
+        await fetch(`${API_URL}/payments/new`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            amount: selectedRide.price,
+            method: paymentMethod,
+            userId: currentUser?.id,
+            driverId: 101 // Mock driver ID
+          })
+        });
+      }
+      setView('thank-you');
+      setTimeout(() => {
+        setLoading(false);
+        handleLogout();
+      }, 3000);
+    } catch (e) {
+      setLoading(false);
+      setView('thank-you'); 
+    }
+  };
+
+  // --- RENDER HELPERS ---
+
+  const renderHeader = () => (
+    <header className="bg-white shadow-sm z-30 px-4 py-3 flex items-center justify-between sticky top-0">
+      <div className="flex items-center space-x-2" onClick={() => userRole === 'user' && setView('home')}>
+        <div className="bg-orange-600 p-1.5 rounded-lg">
+          <Car className="w-6 h-6 text-white" />
+        </div>
+        <h1 className="text-xl font-bold text-gray-800 tracking-tight">Maheshwar<span className="text-orange-600">Ride</span></h1>
+      </div>
+      
+      <div className="flex items-center space-x-3">
+        {/* Connection Status Indicator */}
+        <div className={`flex items-center space-x-1 px-2 py-1 rounded-full text-xs font-bold ${serverOnline ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+           {serverOnline ? <Wifi className="w-3 h-3" /> : <WifiOff className="w-3 h-3" />}
+           <span>{serverOnline ? 'Connected' : 'Offline'}</span>
+        </div>
+
+        {currentUser && (
+          <button onClick={() => setMenuOpen(!menuOpen)} className="p-2 hover:bg-gray-100 rounded-full">
+            {menuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
+          </button>
+        )}
+      </div>
+    </header>
+  );
+
+  const renderSideMenu = () => (
+    menuOpen && (
+      <div className="absolute top-16 right-0 w-64 h-full bg-white shadow-xl z-40 border-l animate-slide-in">
+        <div className="p-4 space-y-4">
+          <div className="flex items-center space-x-3 p-3 bg-gray-50 rounded-lg">
+            <div className="w-10 h-10 bg-gray-200 rounded-full flex items-center justify-center">
+              <User className="w-6 h-6 text-gray-500" />
+            </div>
+            <div>
+              <p className="font-semibold">{currentUser?.name || 'Guest'}</p>
+              <p className="text-xs text-gray-500 capitalize">{currentUser?.role}</p>
+            </div>
+          </div>
+          <button onClick={handleLogout} className="w-full text-left px-4 py-2 text-red-600 hover:bg-red-50 rounded flex items-center">
+            <LogOut className="w-4 h-4 mr-2" /> Logout
+          </button>
+        </div>
+      </div>
+    )
+  );
+
+  // --- VIEWS ---
+
+  if (view === 'landing') {
+    return (
+      <div className="h-screen bg-orange-50 flex flex-col items-center justify-center p-6 space-y-6">
+        <div className="text-center mb-8">
+          <div className="bg-orange-600 w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg">
+            <Car className="w-10 h-10 text-white" />
+          </div>
+          <h1 className="text-3xl font-bold text-gray-800">Maheshwar<span className="text-orange-600">Ride</span></h1>
+          <p className="text-gray-500 mt-2">Choose your role to continue</p>
+          {!serverOnline && <p className="text-xs text-red-500 mt-2 bg-red-100 px-2 py-1 rounded">⚠️ Backend Server Not Connected</p>}
+        </div>
+
+        <button onClick={() => { setUserRole('user'); setView('auth-user'); }} className="w-full max-w-sm bg-white p-4 rounded-xl shadow-md hover:shadow-lg transition flex items-center space-x-4">
+          <div className="bg-blue-100 p-3 rounded-full"><User className="w-6 h-6 text-blue-600" /></div>
+          <div className="text-left"><h3 className="font-bold text-gray-800">Passenger</h3><p className="text-sm text-gray-500">Book rides instantly</p></div>
+        </button>
+
+        <button onClick={() => { setUserRole('driver'); setView('auth-driver-login'); }} className="w-full max-w-sm bg-white p-4 rounded-xl shadow-md hover:shadow-lg transition flex items-center space-x-4">
+          <div className="bg-green-100 p-3 rounded-full"><Car className="w-6 h-6 text-green-600" /></div>
+          <div className="text-left"><h3 className="font-bold text-gray-800">Driver</h3><p className="text-sm text-gray-500">Login / Register & Earn</p></div>
+        </button>
+
+        <button onClick={() => { setUserRole('admin'); setView('auth-admin'); }} className="w-full max-w-sm bg-white p-4 rounded-xl shadow-md hover:shadow-lg transition flex items-center space-x-4">
+          <div className="bg-purple-100 p-3 rounded-full"><Shield className="w-6 h-6 text-purple-600" /></div>
+          <div className="text-left"><h3 className="font-bold text-gray-800">Admin</h3><p className="text-sm text-gray-500">Manage Operations</p></div>
+        </button>
+      </div>
+    );
+  }
+
+  // --- AUTH FORMS ---
+  if (view.startsWith('auth-')) {
+    const isDriverRegister = view === 'auth-driver-register';
+    const isDriverLogin = view === 'auth-driver-login';
+    const isAdmin = view === 'auth-admin';
+    const isUser = view === 'auth-user';
+
+    return (
+      <div className="h-screen bg-white flex flex-col px-6 pt-12 overflow-y-auto">
+        <button onClick={() => setView('landing')} className="mb-6 text-gray-500 flex items-center"><X className="w-5 h-5 mr-1"/> Cancel</button>
+        <h2 className="text-2xl font-bold mb-2">
+          {isAdmin ? 'Admin Login' : isDriverLogin ? 'Driver Login' : isDriverRegister ? 'Driver Registration' : 'Passenger Details'}
+        </h2>
+        
+        {error && <div className="bg-red-50 text-red-600 p-3 rounded-lg mb-4 text-sm">{error}</div>}
+
+        <div className="space-y-4 pb-8">
+           {(isDriverLogin || isAdmin) && (
+             <>
+               <input name="username" placeholder="Username" onChange={handleInputChange} className="w-full p-3 bg-gray-50 rounded-lg border" />
+               <input name="password" type="password" placeholder="Password" onChange={handleInputChange} className="w-full p-3 bg-gray-50 rounded-lg border" />
+             </>
+           )}
+
+           {(isUser || isDriverRegister) && (
+             <>
+               <input name="name" placeholder="Full Name" onChange={handleInputChange} className="w-full p-3 bg-gray-50 rounded-lg border" />
+               <input name="mobile" placeholder="Mobile Number" onChange={handleInputChange} className="w-full p-3 bg-gray-50 rounded-lg border" />
+               <div className="flex space-x-4">
+                 <label className="flex items-center space-x-2 border p-3 rounded-lg flex-1">
+                   <input type="radio" name="gender" value="male" onChange={handleInputChange} defaultChecked /> <span>Male</span>
+                 </label>
+                 <label className="flex items-center space-x-2 border p-3 rounded-lg flex-1">
+                   <input type="radio" name="gender" value="female" onChange={handleInputChange} /> <span>Female</span>
+                 </label>
+               </div>
+             </>
+           )}
+
+           {isDriverRegister && (
+             <div className="space-y-3 pt-2 border-t">
+                <p className="font-semibold text-sm text-gray-600">Documents</p>
+                <div className="border-dashed border-2 border-gray-300 rounded-lg p-4 text-center text-gray-500">
+                   <Upload className="w-6 h-6 mx-auto mb-1" />
+                   <span className="text-xs">Upload Driver Photo</span>
+                </div>
+                <div className="border-dashed border-2 border-gray-300 rounded-lg p-4 text-center text-gray-500">
+                   <FileText className="w-6 h-6 mx-auto mb-1" />
+                   <span className="text-xs">Upload Driving License</span>
+                </div>
+             </div>
+           )}
+
+           <button 
+             onClick={() => {
+               if (isAdmin) handleAdminLogin();
+               else if (isDriverLogin) handleDriverLogin();
+               else if (isDriverRegister) handleDriverRegister();
+               else handleUserLogin();
+             }}
+             disabled={loading}
+             className="w-full bg-orange-600 text-white font-bold py-3 rounded-lg shadow-lg mt-6 flex justify-center"
+           >
+             {loading ? <Loader className="animate-spin" /> : (isDriverLogin || isAdmin ? 'Login' : 'Submit')}
+           </button>
+
+           {isDriverLogin && (
+              <p className="text-center text-sm text-gray-500 mt-4">
+                 Don't have an account? <button onClick={() => setView('auth-driver-register')} className="text-orange-600 font-bold hover:underline">Register Here</button>
+              </p>
+           )}
+        </div>
+      </div>
+    );
+  }
+
+  // --- ADMIN DASHBOARD ---
+  if (view === 'admin-dashboard') {
+    return (
+      <div className="flex flex-col h-screen bg-gray-50">
+        {renderHeader()}
+        {renderSideMenu()}
+        <div className="flex flex-1 overflow-hidden">
+          {/* Sidebar */}
+          <div className="w-20 md:w-64 bg-white shadow-md flex flex-col pt-4">
+            <button onClick={() => setAdminTab('overview')} className={`p-4 flex items-center space-x-3 ${adminTab === 'overview' ? 'text-orange-600 border-r-4 border-orange-600' : 'text-gray-600'}`}>
+              <Users className="w-6 h-6" /> <span className="hidden md:inline font-semibold">Overview</span>
+            </button>
+            <button onClick={() => setAdminTab('users')} className={`p-4 flex items-center space-x-3 ${adminTab === 'users' ? 'text-orange-600 border-r-4 border-orange-600' : 'text-gray-600'}`}>
+              <User className="w-6 h-6" /> <span className="hidden md:inline font-semibold">Passengers</span>
+            </button>
+            <button onClick={() => setAdminTab('drivers')} className={`p-4 flex items-center space-x-3 ${adminTab === 'drivers' ? 'text-orange-600 border-r-4 border-orange-600' : 'text-gray-600'}`}>
+              <Car className="w-6 h-6" /> <span className="hidden md:inline font-semibold">Drivers</span>
+            </button>
+            <button onClick={() => setAdminTab('payments')} className={`p-4 flex items-center space-x-3 ${adminTab === 'payments' ? 'text-orange-600 border-r-4 border-orange-600' : 'text-gray-600'}`}>
+              <IndianRupee className="w-6 h-6" /> <span className="hidden md:inline font-semibold">Payments</span>
+            </button>
+          </div>
+
+          {/* Main Content */}
+          <div className="flex-1 p-6 overflow-y-auto">
+            {loading ? (
+              <div className="flex items-center justify-center h-full"><Loader className="animate-spin w-8 h-8 text-orange-600" /></div>
+            ) : (
+              <>
+                <h2 className="text-2xl font-bold mb-6 capitalize">{adminTab}</h2>
+
+                {adminTab === 'overview' && (
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    <div className="bg-white p-6 rounded-xl shadow-sm border-l-4 border-blue-500">
+                        <p className="text-gray-500 text-sm">Total Passengers</p>
+                        <p className="text-3xl font-bold text-gray-800">{adminData.users.length}</p>
+                    </div>
+                    <div className="bg-white p-6 rounded-xl shadow-sm border-l-4 border-green-500">
+                        <p className="text-gray-500 text-sm">Registered Drivers</p>
+                        <p className="text-3xl font-bold text-gray-800">{adminData.drivers.length}</p>
+                    </div>
+                    <div className="bg-white p-6 rounded-xl shadow-sm border-l-4 border-orange-500">
+                        <p className="text-gray-500 text-sm">Total Revenue</p>
+                        <p className="text-3xl font-bold text-gray-800">₹{adminData.payments.reduce((acc, curr) => acc + curr.amount, 0)}</p>
+                    </div>
+                  </div>
+                )}
+
+                {adminTab === 'users' && (
+                  <div className="bg-white rounded-xl shadow-sm overflow-hidden">
+                    <table className="w-full text-left border-collapse">
+                      <thead className="bg-gray-50 text-gray-600 text-sm uppercase"><tr><th className="p-4">Name</th><th className="p-4">Mobile</th><th className="p-4">Gender</th></tr></thead>
+                      <tbody className="divide-y divide-gray-100">
+                        {adminData.users.map((u, i) => (
+                          <tr key={i}><td className="p-4 font-semibold">{u.name}</td><td className="p-4 font-mono text-sm">{u.mobile}</td><td className="p-4">{u.gender}</td></tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+
+                {adminTab === 'drivers' && (
+                   <div className="bg-white rounded-xl shadow-sm overflow-hidden">
+                    <table className="w-full text-left border-collapse">
+                      <thead className="bg-gray-50 text-gray-600 text-sm uppercase"><tr><th className="p-4">Name</th><th className="p-4">Mobile</th><th className="p-4">ID</th><th className="p-4">Docs</th></tr></thead>
+                      <tbody className="divide-y divide-gray-100">
+                        {adminData.drivers.map((d, i) => (
+                          <tr key={i}>
+                            <td className="p-4 font-semibold">{d.name}</td>
+                            <td className="p-4 font-mono text-sm">{d.mobile}</td>
+                            <td className="p-4 text-xs font-mono">{d.uniqueId}</td>
+                            <td className="p-4"><button className="text-blue-600 text-sm flex items-center"><FileCheck className="w-4 h-4 mr-1"/> View</button></td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+
+                 {adminTab === 'payments' && (
+                   <div className="bg-white rounded-xl shadow-sm overflow-hidden">
+                    <table className="w-full text-left border-collapse">
+                      <thead className="bg-gray-50 text-gray-600 text-sm uppercase"><tr><th className="p-4">Method</th><th className="p-4">Amount</th><th className="p-4">Date</th></tr></thead>
+                      <tbody className="divide-y divide-gray-100">
+                        {adminData.payments.map((p, i) => (
+                          <tr key={i}>
+                            <td className="p-4 capitalize">{p.method}</td>
+                            <td className="p-4 font-bold">₹{p.amount}</td>
+                            <td className="p-4 text-gray-500 text-xs">{new Date(p.date).toLocaleDateString()}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // --- DRIVER DASHBOARD ---
+  if (view === 'driver-dashboard') {
+    return (
+      <div className="flex flex-col h-screen bg-gray-50">
+        {renderHeader()}
+        {renderSideMenu()}
+        <div className="p-6 overflow-y-auto">
+          <div className="bg-white rounded-2xl shadow-lg p-6 mb-6">
+             <div className="flex items-center space-x-4 mb-6">
+               <div className="w-16 h-16 bg-gray-200 rounded-full flex items-center justify-center border-2 border-orange-100">
+                 <User className="w-8 h-8 text-gray-500" />
+               </div>
+               <div>
+                 <h2 className="text-xl font-bold">{currentUser?.name}</h2>
+                 <p className="text-sm text-gray-500">ID: <span className="font-mono text-orange-600">{currentUser?.uniqueId}</span></p>
+                 <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full mt-1 inline-block">Online</span>
+               </div>
+             </div>
+             
+             <div className="flex items-center justify-between bg-gray-50 p-4 rounded-xl">
+               <div>
+                 <p className="font-semibold text-gray-700">Availability</p>
+                 <p className="text-xs text-gray-500">{driverStatus === 'online' ? 'You are receiving rides' : 'You are offline'}</p>
+               </div>
+               <button 
+                 onClick={() => {
+                   setDriverStatus(prev => prev === 'online' ? 'offline' : 'online');
+                   // Simulate a ride coming in
+                   if(driverStatus !== 'online') setTimeout(() => setDriverActiveRide({name: 'Rohan Gupta', pickup: 'Bus Stand', dropoff: 'Fort', rating: 4.5}), 3000); 
+                   else setDriverActiveRide(null);
+                 }}
+                 className={`w-12 h-6 rounded-full p-1 transition-colors duration-300 ${driverStatus === 'online' ? 'bg-green-500' : 'bg-gray-300'}`}
+               >
+                 <div className={`w-4 h-4 bg-white rounded-full shadow-md transform transition-transform duration-300 ${driverStatus === 'online' ? 'translate-x-6' : ''}`}></div>
+               </button>
+             </div>
+          </div>
+
+          {/* ACTIVE RIDE CARD */}
+          {driverStatus === 'online' && driverActiveRide && (
+            <div className="bg-orange-600 rounded-2xl shadow-lg p-6 mb-6 text-white animate-slide-up">
+              <div className="flex justify-between items-start mb-4">
+                <h3 className="font-bold text-lg">New Ride Request</h3>
+                <span className="bg-white text-orange-600 text-xs font-bold px-2 py-1 rounded">2 min away</span>
+              </div>
+              <div className="flex items-center space-x-4 mb-6">
+                 <div className="w-12 h-12 bg-orange-500 rounded-full flex items-center justify-center"><User className="w-6 h-6 text-white" /></div>
+                 <div>
+                    <p className="font-bold text-xl">{driverActiveRide.name}</p>
+                    <div className="flex items-center text-sm opacity-90"><Star className="w-3 h-3 fill-current mr-1" /> {driverActiveRide.rating} Rating</div>
+                 </div>
+              </div>
+              <div className="bg-white/10 p-4 rounded-xl space-y-3 mb-6">
+                 <div className="flex items-center"><div className="w-2 h-2 bg-green-400 rounded-full mr-3"></div><p className="text-sm">{driverActiveRide.pickup}</p></div>
+                 <div className="w-0.5 h-4 bg-white/20 ml-1"></div>
+                 <div className="flex items-center"><div className="w-2 h-2 bg-red-400 rounded-none mr-3"></div><p className="text-sm">{driverActiveRide.dropoff}</p></div>
+              </div>
+              <div className="flex space-x-3">
+                 <button className="flex-1 bg-white text-orange-600 font-bold py-3 rounded-xl hover:bg-gray-100">Accept</button>
+                 <button onClick={() => setDriverActiveRide(null)} className="flex-1 bg-transparent border border-white text-white font-bold py-3 rounded-xl hover:bg-white/10">Ignore</button>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // --- PAYMENT PAGE ---
+  if (view === 'payment') {
+    return (
+      <div className="flex flex-col h-screen bg-gray-50">
+        {renderHeader()}
+        {renderSideMenu()}
+        <div className="flex-1 p-6 flex flex-col">
+           <h2 className="text-2xl font-bold mb-2">Payment</h2>
+           <div className="bg-white rounded-xl shadow-md overflow-hidden mb-4">
+              <div className="p-4 bg-orange-50 border-b border-orange-100 flex justify-between items-center">
+                 <span className="text-gray-600">Total Amount</span>
+                 <span className="text-2xl font-bold text-gray-800">₹{selectedRide?.price || '0.00'}</span>
+              </div>
+              <div className="p-4 space-y-3">
+                 <label className={`flex items-center p-4 border rounded-xl cursor-pointer transition ${paymentMethod === 'online' ? 'border-orange-500 bg-orange-50' : 'hover:bg-gray-50'}`}>
+                    <input type="radio" name="payment" className="w-5 h-5 text-orange-600" checked={paymentMethod === 'online'} onChange={() => setPaymentMethod('online')} />
+                    <div className="ml-4 flex-1"><span className="block font-bold text-gray-800">Online Payment</span></div>
+                    <QrCode className="w-6 h-6 text-gray-400" />
+                 </label>
+                 <label className={`flex items-center p-4 border rounded-xl cursor-pointer transition ${paymentMethod === 'cash' ? 'border-orange-500 bg-orange-50' : 'hover:bg-gray-50'}`}>
+                    <input type="radio" name="payment" className="w-5 h-5 text-orange-600" checked={paymentMethod === 'cash'} onChange={() => setPaymentMethod('cash')} />
+                    <div className="ml-4 flex-1"><span className="block font-bold text-gray-800">Cash Payment</span></div>
+                    <Wallet className="w-6 h-6 text-gray-400" />
+                 </label>
+              </div>
+           </div>
+           
+           <div className="flex-1 flex flex-col items-center justify-center p-4 rounded-xl bg-gray-100 mb-4 border border-dashed border-gray-300">
+             {paymentMethod === 'online' ? (
+                <div className="text-center"><img src="https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=upi://pay?pa=maheshwarride@upi" alt="QR" className="w-40 h-40 mix-blend-multiply mx-auto" /><p className="text-sm font-semibold text-gray-600 mt-2">Scan to Pay</p></div>
+             ) : (
+                <div className="text-center"><Camera className="w-12 h-12 text-gray-500 mb-2 mx-auto" /><p className="text-gray-400 text-xs">Verify Cash Payment</p></div>
+             )}
+           </div>
+
+           <button onClick={finishPayment} disabled={loading} className="w-full bg-green-600 text-white font-bold py-4 rounded-xl shadow-lg hover:bg-green-700 transition active:scale-95">
+             {loading ? 'Processing...' : (paymentMethod === 'online' ? 'I have Paid' : 'Cash Collected')}
+           </button>
+        </div>
+      </div>
+    );
+  }
+
+  // --- THANK YOU PAGE ---
+  if (view === 'thank-you') {
+    return (
+      <div className="h-screen bg-green-50 flex flex-col items-center justify-center p-6 text-center animate-fade-in">
+         <div className="w-24 h-24 bg-green-100 rounded-full flex items-center justify-center mb-6 shadow-sm"><CheckCircle className="w-12 h-12 text-green-600" /></div>
+         <h1 className="text-3xl font-bold text-gray-800 mb-3">Payment Successful!</h1>
+         <p className="text-gray-600">Thank you for giving us an opportunity.</p>
+         <p className="text-sm text-gray-400 mt-8">Redirecting...</p>
+      </div>
+    );
+  }
+
+  // --- PASSENGER HOME VIEW ---
+  return (
+    <div className="flex flex-col h-screen bg-gray-50 font-sans overflow-hidden">
+      {renderHeader()}
+      {renderSideMenu()}
+      <div className="flex-1 relative overflow-y-auto">
+        {/* Map Background */}
+        <div className="absolute inset-0 z-0 bg-blue-50 opacity-50 flex items-center justify-center overflow-hidden">
+           <div className="z-0 text-gray-400 font-bold text-4xl opacity-10 rotate-12 absolute">MAP VIEW</div>
+        </div>
+
+        {(view === 'home' || view === 'choosing') && (
+          <div className="relative z-10 p-4 pt-8">
+            <div className="bg-white rounded-xl shadow-lg p-5 max-w-md mx-auto">
+              <h2 className="text-xl font-bold mb-4">Where to, {currentUser?.name?.split(' ')[0] || 'Guest'}?</h2>
+              <form onSubmit={handleSearch} className="space-y-4">
+                <div className="relative"><div className="absolute left-3 top-3.5 w-2 h-2 rounded-full bg-green-500"></div><input type="text" placeholder="Pickup" className="w-full pl-8 pr-4 py-3 bg-gray-100 rounded-lg" value={pickup} onChange={(e) => setPickup(e.target.value)} /></div>
+                <div className="relative"><div className="absolute left-3 top-3.5 w-2 h-2 rounded-none bg-orange-600"></div><input type="text" placeholder="Dropoff" className="w-full pl-8 pr-4 py-3 bg-gray-100 rounded-lg" value={dropoff} onChange={(e) => setDropoff(e.target.value)} /></div>
+                {view === 'home' && <button type="submit" className="w-full bg-orange-600 text-white font-bold py-3 rounded-lg shadow-md">Search Rides</button>}
+              </form>
+            </div>
+          </div>
+        )}
+
+        {view === 'choosing' && (
+          <div className="absolute bottom-0 w-full bg-white rounded-t-3xl shadow-[0_-5px_20px_rgba(0,0,0,0.1)] z-20 animate-slide-up max-w-md left-1/2 -translate-x-1/2">
+            <div className="px-4 pb-4 pt-4">
+              <h3 className="text-lg font-bold text-gray-800 mb-2">Available Rides</h3>
+              <div className="space-y-2 max-h-60 overflow-y-auto pb-4">
+                {RIDE_OPTIONS.map((ride) => (
+                  <div key={ride.id} onClick={() => confirmRide(ride)} className="flex items-center justify-between p-3 border border-gray-100 rounded-xl hover:bg-orange-50 cursor-pointer">
+                    <div className="flex items-center space-x-3"><span className="text-2xl">{ride.icon}</span><div><h4 className="font-bold">{ride.name}</h4><p className="text-xs text-gray-500">{ride.time}</p></div></div>
+                    <p className="font-bold">₹{ride.price}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {view === 'searching' && (
+          <div className="absolute bottom-0 w-full bg-white rounded-t-3xl shadow-2xl z-20 p-6 text-center max-w-md left-1/2 -translate-x-1/2">
+            <h3 className="text-xl font-bold mb-1">Connecting...</h3>
+            <div className="w-full bg-gray-200 rounded-full h-2 mb-6 mt-4"><div className="bg-orange-600 h-2 rounded-full transition-all duration-75" style={{ width: `${searchTimer}%` }}></div></div>
+          </div>
+        )}
+
+        {view === 'riding' && (
+          <div className="absolute bottom-0 w-full bg-white rounded-t-3xl shadow-2xl z-20 p-5 max-w-md left-1/2 -translate-x-1/2">
+            <div className="flex justify-between items-center mb-4 border-b pb-4"><div><h3 className="text-lg font-bold">On the way</h3><p className="text-xs text-orange-600">Arriving in 5 min</p></div><div className="bg-orange-100 px-3 py-1 rounded-full text-orange-700 font-mono font-bold text-sm">OTP: 4921</div></div>
+            <button onClick={() => { setView('completed'); setTimeout(() => proceedToPayment(), 2000); }} className="w-full bg-gray-800 text-white px-6 py-3 rounded-xl font-bold">End Ride & Pay</button>
+          </div>
+        )}
+
+        {view === 'completed' && (
+          <div className="absolute inset-0 bg-white z-50 flex flex-col items-center justify-center p-6 animate-fade-in">
+             <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mb-4"><CheckCircle className="w-10 h-10 text-green-600" /></div>
+             <h2 className="text-2xl font-bold text-gray-800 mb-2">Ride Completed!</h2>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
